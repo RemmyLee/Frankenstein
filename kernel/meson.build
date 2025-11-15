@@ -2,7 +2,7 @@ if not meson.is_cross_build() or host_machine.system() != 'raspberry-pi'
     error('The kernel must target a valid RaspberryPi target')
 endif
 
-elf = executable('kernel.elf', 'startup.S', 'main.cpp', 'kernel.cpp',
+elf = executable('kernel.elf', 'startup.S', 'main.cpp', 'kernel.cpp', 'menu.cpp',
     dependencies: [libcircle_dep, emulator_dep],
     cpp_args: cpp_cross_args,
     link_args: cpp_cross_args)

@@ -21,6 +21,7 @@
 
 #include "../emulator/include/nes.h"
 #include "../emulator/include/rom_static.h"
+#include "menu.h"
 
 using namespace Frankenstein;
 
@@ -63,10 +64,17 @@ private:
     CLogger		m_Logger;
     CDWHCIDevice	m_DWHCI;
 
-    // TODO: add more members here
+    // Menu and ROM management
+    Menu menu;
+    Rom* current_rom;
+    Nes* current_nes;
+    bool in_menu;
+    bool prev_select_pressed;
+    bool prev_start_pressed;
+
+    // Hardcoded test ROMs (will be replaced with SD card loading later)
     Rom embedded_rom;
     Nes nes;
-    
 };
 
 #endif
