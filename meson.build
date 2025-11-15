@@ -5,8 +5,8 @@ project('frankenstein', 'cpp',
                     'cpp_std=c++14']
 )
 
-thread = dependency('threads', native: true)
-gtest = subproject('gtest', native: true, main: false)
+thread = dependency('threads')
+gtest = subproject('gtest')
 gtest_inc = gtest.get_variable('incdir')
 gtest_lib_src = gtest.get_variable('libsources')
 gtest_main_src = gtest.get_variable('mainsources')
