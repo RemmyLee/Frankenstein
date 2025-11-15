@@ -6,17 +6,17 @@ Mapper* MapperFactory::MakeMapper(u8 mapper, Rom& rom)
 {
     switch (mapper) {
     case 0:
-        return new Mapper2(rom);
+        return new Mapper0(rom);  // FIXED: was incorrectly using Mapper2
     case 1:
         return new Mapper1(rom);
     case 2:
         return new Mapper2(rom);
     case 3:
-        return new Mapper3();
+        return new Mapper3(rom);
     case 4:
         return new Mapper4();
     case 7:
-        return new Mapper7();
+        return new Mapper7(rom);
     }
     return nullptr;
 }

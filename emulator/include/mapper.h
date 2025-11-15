@@ -56,6 +56,20 @@ private:
     u32 chrOffsets[2];
 };
 
+class Mapper0 : public Mapper {
+public:
+    virtual u8 Read(u16 address) override;
+    virtual void Write(u16 address, u8 value) override;
+    virtual void Step() override;
+
+    Mapper0(Rom& pRom);
+    ~Mapper0() override;
+
+private:
+    Rom& rom;
+    u8 prgBanks;  // 1 or 2 (16KB or 32KB)
+};
+
 class Mapper2 : public Mapper {
 public:
     virtual u8 Read(u16 address) override;
@@ -78,8 +92,14 @@ public:
     virtual void Write(u16 address, u8 value) override;
     virtual void Step() override;
 
-    Mapper3();
+    Mapper3(Rom& pRom);
     ~Mapper3() override;
+
+private:
+    Rom& rom;
+    u8 chrBank;      // Current CHR bank (0-3)
+    u8 chrBanks;     // Total number of CHR banks
+    u8 prgBanks;     // Number of PRG banks (1 or 2)
 };
 
 class Mapper4 : public Mapper {
@@ -98,7 +118,12 @@ public:
     virtual void Write(u16 address, u8 value) override;
     virtual void Step() override;
 
-    Mapper7();
+    Mapper7(Rom& pRom);
     ~Mapper7() override;
+
+private:
+    Rom& rom;
+    u8 prgBank;      // Current 32KB PRG bank
+    u8 prgBanks;     // Total number of 32KB banks
 };
 }

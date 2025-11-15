@@ -3,6 +3,63 @@
 using namespace Frankenstein;
 
 /**********************************************/
+/***************** MAPPER 0 *******************/
+/**********************************************/
+
+// Mapper 0 (NROM): No bank switching
+// PRG-ROM: 16KB or 32KB at 0x8000-0xFFFF (16KB is mirrored)
+// CHR-ROM: 8KB at 0x0000-0x1FFF
+// SRAM: 8KB at 0x6000-0x7FFF
+
+u8 Mapper0::Read(u16 address)
+{
+    if (address < 0x2000) {
+        // CHR-ROM: 8KB
+        return rom.GetCHR()[address];
+    } else if (address >= 0x8000) {
+        // PRG-ROM: Handle both 16KB (mirrored) and 32KB
+        u16 index;
+        if (prgBanks == 1) {
+            // 16KB ROM: mirror to fill 32KB space
+            index = (address - 0x8000) & 0x3FFF;  // Mask to 16KB
+        } else {
+            // 32KB ROM: direct mapping
+            index = address - 0x8000;
+        }
+        return rom.GetPRG()[index];
+    } else if (address >= 0x6000) {
+        // SRAM
+        return rom.GetSRAM()[address - 0x6000];
+    }
+    return 0;
+}
+
+void Mapper0::Write(u16 address, u8 value)
+{
+    if (address < 0x2000) {
+        // CHR-RAM write (if cartridge has RAM instead of ROM)
+        rom.GetCHR()[address] = value;
+    } else if (address >= 0x6000 && address < 0x8000) {
+        // SRAM write
+        rom.GetSRAM()[address - 0x6000] = value;
+    }
+    // PRG-ROM area (0x8000-0xFFFF): writes are ignored (it's ROM)
+}
+
+void Mapper0::Step()
+{
+    // No IRQ or special timing logic for Mapper 0
+}
+
+Mapper0::Mapper0(Rom& pRom)
+    : rom(pRom)
+{
+    prgBanks = rom.GetHeader().prgRomBanks;
+}
+
+Mapper0::~Mapper0() {}
+
+/**********************************************/
 /***************** MAPPER 1 *******************/
 /**********************************************/
 
@@ -240,17 +297,63 @@ Mapper2::~Mapper2() {}
 /***************** MAPPER 3 *******************/
 /**********************************************/
 
+// Mapper 3 (CNROM): Bank-switched CHR-ROM
+// PRG-ROM: Fixed 16KB or 32KB (no banking)
+// CHR-ROM: Switchable 8KB banks (selected by writes to 0x8000-0xFFFF)
+
 u8 Mapper3::Read(u16 address)
 {
+    if (address < 0x2000) {
+        // CHR-ROM: 8KB bank-switched
+        u32 index = chrBank * 0x2000 + address;
+        return rom.GetCHR()[index];
+    } else if (address >= 0x8000) {
+        // PRG-ROM: Fixed (16KB or 32KB)
+        u16 index;
+        if (prgBanks == 1) {
+            // 16KB: mirror to fill 32KB
+            index = (address - 0x8000) & 0x3FFF;
+        } else {
+            // 32KB: direct mapping
+            index = address - 0x8000;
+        }
+        return rom.GetPRG()[index];
+    } else if (address >= 0x6000) {
+        // SRAM
+        return rom.GetSRAM()[address - 0x6000];
+    }
     return 0;
 }
 
 void Mapper3::Write(u16 address, u8 value)
 {
+    if (address < 0x2000) {
+        // CHR-RAM write (some games use RAM instead of ROM)
+        u32 index = chrBank * 0x2000 + address;
+        rom.GetCHR()[index] = value;
+    } else if (address >= 0x8000) {
+        // Select CHR bank (only lower 2 bits typically used)
+        chrBank = value & (chrBanks - 1);
+    } else if (address >= 0x6000) {
+        // SRAM write
+        rom.GetSRAM()[address - 0x6000] = value;
+    }
 }
 
 void Mapper3::Step()
 {
+    // No IRQ or special timing
+}
+
+Mapper3::Mapper3(Rom& pRom)
+    : rom(pRom)
+    , chrBank(0)
+{
+    prgBanks = rom.GetHeader().prgRomBanks;
+    chrBanks = rom.GetHeader().vRomBanks;
+    if (chrBanks == 0) {
+        chrBanks = 1;  // CHR-RAM if no CHR-ROM
+    }
 }
 
 Mapper3::~Mapper3() {}
@@ -278,17 +381,59 @@ Mapper4::~Mapper4() {}
 /***************** MAPPER 7 *******************/
 /**********************************************/
 
+// Mapper 7 (AxROM): 32KB PRG bank switching
+// PRG-ROM: Switchable 32KB banks at 0x8000-0xFFFF
+// CHR-RAM: Fixed 8KB (not ROM)
+// Mirroring: Single-screen (controlled by bit 4)
+
 u8 Mapper7::Read(u16 address)
 {
+    if (address < 0x2000) {
+        // CHR-RAM: Fixed 8KB
+        return rom.GetCHR()[address];
+    } else if (address >= 0x8000) {
+        // PRG-ROM: Switchable 32KB bank
+        u32 index = prgBank * 0x8000 + (address - 0x8000);
+        return rom.GetPRG()[index];
+    } else if (address >= 0x6000) {
+        // SRAM
+        return rom.GetSRAM()[address - 0x6000];
+    }
     return 0;
 }
 
 void Mapper7::Write(u16 address, u8 value)
 {
+    if (address < 0x2000) {
+        // CHR-RAM write
+        rom.GetCHR()[address] = value;
+    } else if (address >= 0x8000) {
+        // Select 32KB PRG bank (bits 0-2)
+        prgBank = value & 0x07;
+        if (prgBank >= prgBanks) {
+            prgBank = prgBanks - 1;
+        }
+        // Bit 4 controls single-screen mirroring
+        // (mirroring would be handled by PPU - not implemented here)
+    } else if (address >= 0x6000) {
+        // SRAM write
+        rom.GetSRAM()[address - 0x6000] = value;
+    }
 }
 
 void Mapper7::Step()
 {
+    // No IRQ or special timing
+}
+
+Mapper7::Mapper7(Rom& pRom)
+    : rom(pRom)
+    , prgBank(0)
+{
+    prgBanks = rom.GetHeader().prgRomBanks / 2;  // 32KB banks
+    if (prgBanks == 0) {
+        prgBanks = 1;
+    }
 }
 
 Mapper7::~Mapper7() {}
