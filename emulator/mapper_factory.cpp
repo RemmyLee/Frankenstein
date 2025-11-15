@@ -14,7 +14,7 @@ Mapper* MapperFactory::MakeMapper(u8 mapper, Rom& rom)
     case 3:
         return new Mapper3(rom);
     case 4:
-        return new Mapper4();
+        return new Mapper4(rom);
     case 7:
         return new Mapper7(rom);
     }

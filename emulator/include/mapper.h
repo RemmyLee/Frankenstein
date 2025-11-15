@@ -108,8 +108,43 @@ public:
     virtual void Write(u16 address, u8 value) override;
     virtual void Step() override;
 
-    Mapper4();
+    Mapper4(Rom& pRom);
     ~Mapper4() override;
+
+private:
+    Rom& rom;
+
+    // Bank select and configuration
+    u8 bankSelect;       // Which bank register to update
+    u8 bankRegisters[8]; // 8 bank registers (R0-R7)
+    u8 prgMode;          // PRG banking mode (0 or 1)
+    u8 chrMode;          // CHR banking mode (0 or 1)
+
+    // Computed bank offsets for fast access
+    u32 prgOffsets[4];   // Four 8KB PRG banks
+    u32 chrOffsets[8];   // Eight 1KB CHR banks
+
+    // IRQ counter
+    u8 irqLatch;         // IRQ reload value
+    u8 irqCounter;       // IRQ counter
+    bool irqEnabled;     // IRQ enable flag
+    bool irqReload;      // IRQ reload flag
+
+    // Mirroring
+    u8 mirrorMode;       // 0=vertical, 1=horizontal
+
+    // Helper methods
+    void updateOffsets();
+    s32 prgBankOffset(s32 index);
+    s32 chrBankOffset(s32 index);
+    void writeBankSelect(u8 value);
+    void writeBankData(u8 value);
+    void writeMirror(u8 value);
+    void writeProtect(u8 value);
+    void writeIRQLatch(u8 value);
+    void writeIRQReload(u8 value);
+    void writeIRQDisable(u8 value);
+    void writeIRQEnable(u8 value);
 };
 
 class Mapper7 : public Mapper {

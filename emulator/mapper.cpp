@@ -362,17 +362,241 @@ Mapper3::~Mapper3() {}
 /***************** MAPPER 4 *******************/
 /**********************************************/
 
+// Mapper 4 (MMC3): Most complex and widely used mapper
+// PRG-ROM: 4x 8KB banks (2 switchable, 2 fixed)
+// CHR-ROM: 8x 1KB banks (all switchable)
+// IRQ: Scanline counter for split-screen effects
+// Games: Super Mario Bros 2/3, Kirby, Mega Man 3-6
+
 u8 Mapper4::Read(u16 address)
 {
+    if (address < 0x2000) {
+        // CHR-ROM: 8x 1KB banks
+        u16 bank = address / 0x0400;  // Which 1KB bank
+        u16 offset = address % 0x0400;
+        return rom.GetCHR()[chrOffsets[bank] + offset];
+    } else if (address >= 0x8000) {
+        // PRG-ROM: 4x 8KB banks
+        address -= 0x8000;
+        u16 bank = address / 0x2000;  // Which 8KB bank
+        u16 offset = address % 0x2000;
+        return rom.GetPRG()[prgOffsets[bank] + offset];
+    } else if (address >= 0x6000) {
+        // SRAM: 8KB
+        return rom.GetSRAM()[address - 0x6000];
+    }
     return 0;
 }
 
 void Mapper4::Write(u16 address, u8 value)
 {
+    if (address < 0x2000) {
+        // CHR-RAM write
+        u16 bank = address / 0x0400;
+        u16 offset = address % 0x0400;
+        rom.GetCHR()[chrOffsets[bank] + offset] = value;
+    } else if (address >= 0x8000) {
+        // Register writes based on address bits
+        if ((address & 0xE001) == 0x8000) {
+            writeBankSelect(value);
+        } else if ((address & 0xE001) == 0x8001) {
+            writeBankData(value);
+        } else if ((address & 0xE001) == 0xA000) {
+            writeMirror(value);
+        } else if ((address & 0xE001) == 0xA001) {
+            writeProtect(value);
+        } else if ((address & 0xE001) == 0xC000) {
+            writeIRQLatch(value);
+        } else if ((address & 0xE001) == 0xC001) {
+            writeIRQReload(value);
+        } else if ((address & 0xE001) == 0xE000) {
+            writeIRQDisable(value);
+        } else if ((address & 0xE001) == 0xE001) {
+            writeIRQEnable(value);
+        }
+    } else if (address >= 0x6000) {
+        // SRAM write
+        rom.GetSRAM()[address - 0x6000] = value;
+    }
 }
 
 void Mapper4::Step()
 {
+    // IRQ counter is clocked by PPU A12 rising edges
+    // In practice, this happens once per scanline
+    // This is called once per PPU cycle (3x per CPU cycle)
+    // We need to detect scanline boundaries
+
+    // Simplified implementation: Decrement counter
+    if (irqCounter == 0) {
+        if (irqReload) {
+            irqCounter = irqLatch;
+            irqReload = false;
+        }
+    } else {
+        irqCounter--;
+        if (irqCounter == 0 && irqEnabled) {
+            // Trigger IRQ in CPU
+            // TODO: Need access to CPU to set IRQ flag
+            // For now, just note that IRQ should fire
+        }
+    }
+}
+
+// Bank select: Choose which bank register to update
+void Mapper4::writeBankSelect(u8 value)
+{
+    bankSelect = value & 0x07;  // Bank register (0-7)
+    prgMode = (value >> 6) & 0x01;  // PRG banking mode
+    chrMode = (value >> 7) & 0x01;  // CHR banking mode
+    updateOffsets();
+}
+
+// Bank data: Update selected bank register
+void Mapper4::writeBankData(u8 value)
+{
+    bankRegisters[bankSelect] = value;
+    updateOffsets();
+}
+
+// Mirroring control
+void Mapper4::writeMirror(u8 value)
+{
+    mirrorMode = value & 0x01;
+    // 0 = vertical, 1 = horizontal
+}
+
+// PRG RAM protect (not fully implemented)
+void Mapper4::writeProtect(u8 value)
+{
+    // Bit 7: PRG RAM chip enable
+    // Bit 6: Write protect
+    // Not critical for most games
+}
+
+// IRQ latch: Set reload value
+void Mapper4::writeIRQLatch(u8 value)
+{
+    irqLatch = value;
+}
+
+// IRQ reload: Reset counter
+void Mapper4::writeIRQReload(u8 value)
+{
+    irqReload = true;
+}
+
+// IRQ disable
+void Mapper4::writeIRQDisable(u8 value)
+{
+    irqEnabled = false;
+    // TODO: Acknowledge pending IRQ
+}
+
+// IRQ enable
+void Mapper4::writeIRQEnable(u8 value)
+{
+    irqEnabled = true;
+}
+
+// Calculate PRG bank offset
+s32 Mapper4::prgBankOffset(s32 index)
+{
+    if (index >= 0x80) {
+        index -= 0x100;  // Handle negative indices
+    }
+    u32 prgSize = rom.GetHeader().prgRomBanks * PRGROM_BANK_SIZE;
+    index %= prgSize / 0x2000;  // Number of 8KB banks
+    s32 offset = index * 0x2000;
+    if (offset < 0) {
+        offset += prgSize;
+    }
+    return offset;
+}
+
+// Calculate CHR bank offset
+s32 Mapper4::chrBankOffset(s32 index)
+{
+    if (index >= 0x80) {
+        index -= 0x100;
+    }
+    u32 chrSize = rom.GetHeader().vRomBanks * VROM_BANK_SIZE;
+    if (chrSize == 0) {
+        return 0;  // CHR-RAM
+    }
+    index %= chrSize / 0x0400;  // Number of 1KB banks
+    s32 offset = index * 0x0400;
+    if (offset < 0) {
+        offset += chrSize;
+    }
+    return offset;
+}
+
+// Update all bank offsets based on current configuration
+void Mapper4::updateOffsets()
+{
+    // PRG banking modes:
+    // Mode 0: $8000 swappable, $A000 swappable, $C000 fixed to -2, $E000 fixed to -1
+    // Mode 1: $8000 fixed to -2, $A000 swappable, $C000 swappable, $E000 fixed to -1
+
+    if (prgMode == 0) {
+        prgOffsets[0] = prgBankOffset(bankRegisters[6]);
+        prgOffsets[1] = prgBankOffset(bankRegisters[7]);
+        prgOffsets[2] = prgBankOffset(-2);
+        prgOffsets[3] = prgBankOffset(-1);
+    } else {
+        prgOffsets[0] = prgBankOffset(-2);
+        prgOffsets[1] = prgBankOffset(bankRegisters[7]);
+        prgOffsets[2] = prgBankOffset(bankRegisters[6]);
+        prgOffsets[3] = prgBankOffset(-1);
+    }
+
+    // CHR banking modes:
+    // Mode 0: 2KB banks at $0000, 2KB banks at $1000 (R0,R1 are 2KB, R2-R5 are 1KB)
+    // Mode 1: 2KB banks at $1000, 2KB banks at $0000 (swapped)
+
+    if (chrMode == 0) {
+        // R0, R1 are 2KB banks (ignore low bit)
+        chrOffsets[0] = chrBankOffset(bankRegisters[0] & 0xFE);
+        chrOffsets[1] = chrBankOffset(bankRegisters[0] | 0x01);
+        chrOffsets[2] = chrBankOffset(bankRegisters[1] & 0xFE);
+        chrOffsets[3] = chrBankOffset(bankRegisters[1] | 0x01);
+        // R2-R5 are 1KB banks
+        chrOffsets[4] = chrBankOffset(bankRegisters[2]);
+        chrOffsets[5] = chrBankOffset(bankRegisters[3]);
+        chrOffsets[6] = chrBankOffset(bankRegisters[4]);
+        chrOffsets[7] = chrBankOffset(bankRegisters[5]);
+    } else {
+        // Swapped: 2KB banks at $1000
+        chrOffsets[0] = chrBankOffset(bankRegisters[2]);
+        chrOffsets[1] = chrBankOffset(bankRegisters[3]);
+        chrOffsets[2] = chrBankOffset(bankRegisters[4]);
+        chrOffsets[3] = chrBankOffset(bankRegisters[5]);
+        chrOffsets[4] = chrBankOffset(bankRegisters[0] & 0xFE);
+        chrOffsets[5] = chrBankOffset(bankRegisters[0] | 0x01);
+        chrOffsets[6] = chrBankOffset(bankRegisters[1] & 0xFE);
+        chrOffsets[7] = chrBankOffset(bankRegisters[1] | 0x01);
+    }
+}
+
+Mapper4::Mapper4(Rom& pRom)
+    : rom(pRom)
+    , bankSelect(0)
+    , prgMode(0)
+    , chrMode(0)
+    , irqLatch(0)
+    , irqCounter(0)
+    , irqEnabled(false)
+    , irqReload(false)
+    , mirrorMode(0)
+{
+    // Initialize bank registers
+    for (int i = 0; i < 8; i++) {
+        bankRegisters[i] = 0;
+    }
+
+    // Set initial offsets
+    updateOffsets();
 }
 
 Mapper4::~Mapper4() {}
